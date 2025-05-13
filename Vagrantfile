@@ -1,33 +1,39 @@
 # -*- mode: ruby -*-
 # vi: set ft=ruby  :
+VAGRANTFILE_API_VERSION = "2"
 
-machines = {
-  "master" => {"memory" => "1024", "cpu" => "1", "ip" => "100", "image" => "bento/ubuntu-22.04"},
-  "node01" => {"memory" => "1024", "cpu" => "1", "ip" => "101", "image" => "bento/ubuntu-22.04"},
-  "node02" => {"memory" => "1024", "cpu" => "1", "ip" => "102", "image" => "bento/ubuntu-22.04"}
-}
+Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
+  config.vm.box = "davekpatrick/ubuntu-2204"
+  config.vm.box_version = "2022.1.4"
 
-Vagrant.configure("2") do |config|
+  NODES = {
+    "master" => { ip: "192.168.56.10", cpus: 1, memory: 1024 },
+    "worker1" => { ip: "192.168.56.11", cpus: 1, memory: 512 },
+    "worker2" => { ip: "192.168.56.12", cpus: 1, memory: 512 }
+  }
 
-  machines.each do |name, conf|
-    config.vm.define "#{name}" do |machine|
-      machine.vm.box = "#{conf["image"]}"
-      machine.vm.hostname = "#{name}"
-      machine.vm.network "private_network", ip: "10.10.10.#{conf["ip"]}"
-      machine.vm.provider "virtualbox" do |vb|
-        vb.name = "#{name}"
-        vb.memory = conf["memory"]
-        vb.cpus = conf["cpu"]
-        
-      end
-      machine.vm.provision "shell", path: "docker.sh"
-      
-      if "#{name}" == "master"
-        machine.vm.provision "shell", path: "master.sh"
-      else
-        machine.vm.provision "shell", path: "worker.sh"
+  NODES.each do |name, opts|
+    config.vm.define name do |node|
+      node.vm.hostname = name
+      node.vm.network :private_network, ip: opts[:ip]
+
+      node.vm.provider "virtualbox" do |vb|
+        vb.memory = opts[:memory]
+        vb.cpus = opts[:cpus]
+        vb.customize ["modifyvm", :id, "--uartmode1", "disconnected"]
       end
 
+      node.vm.provision "shell", path: "scripts/install_docker.sh"
+    end
+  end
+
+  config.vm.define "master" do |master|
+    master.vm.provision "shell", path: "scripts/init_swarm.sh", privileged: true
+  end
+
+  ["worker1", "worker2"].each do |worker|
+    config.vm.define worker do |node|
+      node.vm.provision "shell", path: "scripts/join_worker.sh", privileged: true
     end
   end
 end
